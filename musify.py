@@ -461,7 +461,9 @@ async def cmd_volume(ctx: commands.Context, percent: int):
 @bot.command(name="search")
 async def cmd_search(ctx: commands.Context, *, query: str):
     gm = STATE.setdefault(ctx.guild.id, GuildMusic(guild_id=ctx.guild.id))
-    tracks = search_tracks(query, max_results=10)
+    # Force yt-dlp to search for 10 results
+    yt_query = f"ytsearch10:{query}"
+    tracks = search_tracks(yt_query, max_results=10)
     if not tracks:
         await ctx.send("❌ No results found or network error.")
         return
