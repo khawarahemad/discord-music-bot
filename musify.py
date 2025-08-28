@@ -188,7 +188,21 @@ async def start_playback(ctx: commands.Context, gm: GuildMusic):
     try:
         view = ControlPanel(gm)
         embed = build_embed(gm.current)
-        if gm.message and gm.message.channel.permissions_for(gm.message.channel.guild.me).manage_messages:
+        send_new_msg = False
+        # Check if old player message is >10 messages old
+        if gm.message:
+            try:
+                # Fetch last 11 messages (including the old player message)
+                history = [msg async for msg in gm.message.channel.history(limit=11)]
+                # If gm.message is not in the last 10 messages, send new
+                if gm.message not in history[:10]:
+                    send_new_msg = True
+            except Exception:
+                send_new_msg = True
+        else:
+            send_new_msg = True
+
+        if not send_new_msg and gm.message and gm.message.channel.permissions_for(gm.message.channel.guild.me).manage_messages:
             try:
                 await gm.message.edit(embed=embed, view=view)
             except Exception:

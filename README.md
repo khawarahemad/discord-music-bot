@@ -18,7 +18,7 @@ Supports Discord.py v2+, yt-dlp, FFmpeg, and runs on any OS.
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/khawarahemad/discord-music-bot.git
 cd Musify\ bot
 ```
 
@@ -66,7 +66,7 @@ If hosting on Replit/Heroku, make sure to install `flask` and keep the `.env` fi
 
 2. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/khawarahemad/discord-music-bot.git
    cd "Musify bot"
    ```
 
