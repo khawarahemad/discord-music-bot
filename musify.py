@@ -329,25 +329,21 @@ def search_tracks(query: str, max_results: int = 10) -> list[Track]:
     results = []
     if info is None:
         return results
-    if "entries" in info:
-        for entry in info["entries"]:
-            if entry:
-                results.append(Track(
-                    url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
-                    title=entry.get("title", "Unknown Title"),
-                    webpage_url=entry.get("webpage_url", ""),
-                    duration=entry.get("duration", 0),
-                    thumbnail=entry.get("thumbnail"),
-                ))
-            if len(results) >= max_results:
-                break
+    # Always treat as a search: if not a playlist, wrap single result as entries
+    entries = []
+    if "entries" in info and isinstance(info["entries"], list):
+        entries = [e for e in info["entries"] if e]
     else:
+        # If not a playlist/search, try to simulate search by running ytsearch
+        if info.get("webpage_url") and info.get("title"):
+            entries = [info]
+    for entry in entries[:max_results]:
         results.append(Track(
-            url=info.get("url") or info.get("formats", [{}])[0].get("url", ""),
-            title=info.get("title", "Unknown Title"),
-            webpage_url=info.get("webpage_url", ""),
-            duration=info.get("duration", 0),
-            thumbnail=info.get("thumbnail"),
+            url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
+            title=entry.get("title", "Unknown Title"),
+            webpage_url=entry.get("webpage_url", ""),
+            duration=entry.get("duration", 0),
+            thumbnail=entry.get("thumbnail"),
         ))
     return results
 
@@ -497,6 +493,10 @@ def keep_alive():
 # Run the bot
 # Put your token in the DISCORD_TOKEN env var or replace below directly.
 TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN not set in .env file")
+threading.Thread(target=keep_alive).start()
+bot.run(TOKEN)
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN not set in .env file")
 threading.Thread(target=keep_alive).start()
