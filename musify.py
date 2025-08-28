@@ -356,10 +356,17 @@ class SearchPanel(View):
         self.gm = gm
         for i, track in enumerate(tracks):
             self.add_item(self.make_button(i, track.title))
+        # Add a "Done" button to close the panel
+        self.add_item(self.make_done_button())
 
     def make_button(self, idx, title):
         return discord.ui.Button(
             label=f"{idx+1}", style=discord.ButtonStyle.primary, custom_id=f"search_{idx}", row=idx//5
+        )
+
+    def make_done_button(self):
+        return discord.ui.Button(
+            label="Done", style=discord.ButtonStyle.success, custom_id="search_done", row=2
         )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -376,12 +383,17 @@ class SearchPanel(View):
         await interaction.response.send_message(f"❌ Error: {error}", ephemeral=True)
 
     async def callback(self, interaction: discord.Interaction):
-        idx = int(interaction.data["custom_id"].split("_")[1])
+        cid = interaction.data["custom_id"]
+        if cid == "search_done":
+            await interaction.response.send_message("✅ Search panel closed.", ephemeral=True)
+            self.stop()
+            return
+        idx = int(cid.split("_")[1])
         track = self.tracks[idx]
         self.gm.queue.append(track)
         await interaction.response.send_message(f"➕ Queued: **{track.title}**", ephemeral=True)
         await start_playback(self.ctx, self.gm)
-        self.stop()
+        # Do NOT self.stop() here, allow more selections
 
     def add_item(self, button):
         async def button_callback(interaction: discord.Interaction):
