@@ -155,6 +155,28 @@ Type commands in any text channel where the bot has access.
 - Works on VPS, local machine, Replit, Heroku, etc.
 - For Replit/Heroku, a keepalive web server is included in the code.
 
+## Docker
+
+You can run the bot in Docker to ensure all dependencies (including FFmpeg) are installed automatically.
+
+### Build the Docker image
+
+```bash
+docker build -t musify-bot .
+```
+
+### Run the bot
+
+```bash
+docker run -d --name musify-bot \
+  --env-file .env \
+  -p 8080:8080 \
+  musify-bot
+```
+
+- Make sure your `.env` file is present in the project directory before building/running.
+- The bot will run with all dependencies (Python, FFmpeg, etc.) included.
+
 ## License
 
 MIT
