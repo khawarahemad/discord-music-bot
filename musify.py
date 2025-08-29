@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+COOKIES_PATH = os.getenv("YTDLP_COOKIES", "cookies.txt")
+
 # -----------------------------
 # Bot Setup
 # -----------------------------
@@ -41,6 +43,7 @@ YTDL_OPTS = {
     "preferredquality": "192",
     "socket_timeout": 10,  # yt-dlp socket timeout
     "http_timeout": 10,    # yt-dlp HTTP timeout
+    "cookies": COOKIES_PATH,
 }
 FFMPEG_BEFORE = "-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 10000000"
 FFMPEG_OPTS = "-vn -timeout 10"
