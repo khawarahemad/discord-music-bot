@@ -1,22 +1,22 @@
 FROM python:3.10-slim
 
-# Install FFmpeg
+# Install FFmpeg and other dependencies
 RUN apt-get update && \
     apt-get install -y ffmpeg && \
-    apt-get clean
+    rm -rf /var/lib/apt/lists/*
 
-# Set work directory
-WORKDIR /app
-
-# Copy requirements and install
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy bot code
-COPY . .
+COPY . /app
+WORKDIR /app
 
-# Expose port for keepalive server (if needed)
-EXPOSE 8080
+# Healthcheck (optional)
+HEALTHCHECK CMD curl --fail http://localhost:8080 || exit 1
 
+# Run the bot
+CMD ["python", "musify.py"]
 # Run the bot
 CMD ["python", "musify.py"]
