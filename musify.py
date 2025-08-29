@@ -32,10 +32,23 @@ def check_cookies_file(path):
         return False
     try:
         with open(path, "r", encoding="utf-8") as f:
-            first_line = f.readline()
-            if not first_line.startswith("# Netscape"):
+            lines = f.readlines()
+            if not lines or not lines[0].startswith("# Netscape"):
                 print("Warning: cookies.txt is not in Netscape format. Export using a browser extension like 'Get cookies.txt'.")
                 return False
+            # Check for critical cookies
+            cookies_needed = ["SID", "HSID", "SSID", "LOGIN_INFO"]
+            found = {c: False for c in cookies_needed}
+            for line in lines:
+                for c in cookies_needed:
+                    if f"\t{c}\t" in line:
+                        found[c] = True
+            for c, ok in found.items():
+                if not ok:
+                    print(f"Warning: Cookie '{c}' not found in cookies.txt. You must be logged in to YouTube when exporting cookies.")
+            print("First 10 lines of cookies.txt for debug:")
+            for line in lines[:10]:
+                print(line.strip())
     except Exception as e:
         print(f"Warning: Could not read cookies.txt: {e}")
         return False
