@@ -12,6 +12,7 @@ import os
 import socket
 from typing import Deque, Optional
 import threading
+import urllib.request
 
 import discord
 from discord.ext import commands
@@ -22,6 +23,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 COOKIES_PATH = os.getenv("YTDLP_COOKIES", "cookies.txt")
+COOKIES_PATH = os.path.abspath(COOKIES_PATH)
+
+def check_cookies_file(path):
+    print(f"Using cookies file: {path}")
+    if not os.path.isfile(path):
+        print(f"Warning: cookies.txt not found at {path}")
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            first_line = f.readline()
+            if not first_line.startswith("# Netscape"):
+                print("Warning: cookies.txt is not in Netscape format. Export using a browser extension like 'Get cookies.txt'.")
+                return False
+    except Exception as e:
+        print(f"Warning: Could not read cookies.txt: {e}")
+        return False
+    return True
+
+if not check_cookies_file(COOKIES_PATH):
+    COOKIES_PATH = None
 
 # -----------------------------
 # Bot Setup
@@ -46,7 +67,7 @@ YTDL_OPTS = {
     "preferredquality": "192",
     "socket_timeout": 10,  # yt-dlp socket timeout
     "http_timeout": 10,    # yt-dlp HTTP timeout
-    "cookies": COOKIES_PATH,
+    "cookies": COOKIES_PATH if COOKIES_PATH else None,
 }
 FFMPEG_BEFORE = "-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 10000000"
 FFMPEG_OPTS = "-vn -timeout 10"
