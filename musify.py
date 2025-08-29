@@ -1,6 +1,9 @@
 # Discord Music Bot with Interactive Buttons (No Reactions) — Full, Fixed Code
 # Requires: discord.py v2+, yt-dlp, ffmpeg installed and in PATH
 # pip install -U discord.py yt-dlp
+# If you get "Sign in to confirm you’re not a bot" errors, see:
+# https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp
+# and set YTDLP_COOKIES in your .env file to the path of your exported cookies.txt
 
 import asyncio
 from collections import deque
@@ -111,6 +114,13 @@ def ytdl_search(query: str) -> Track:
         socket.setdefaulttimeout(10)
         info = YTDL.extract_info(query, download=False)
     except Exception as e:
+        # Add specific error message for cookie issues
+        if "Sign in to confirm you’re not a bot" in str(e):
+            raise RuntimeError(
+                "yt-dlp error: Sign in required. "
+                "Export your YouTube cookies and set YTDLP_COOKIES in your .env file. "
+                "See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
+            )
         raise RuntimeError(f"yt-dlp error: {e}")
     if info is None:
         raise RuntimeError("No results from yt-dlp.")
