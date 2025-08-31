@@ -549,6 +549,56 @@ async def cmd_search(ctx: commands.Context, *, query: str):
     await ctx.send(embed=embed, view=view)
 
 
+@bot.command(name="help")
+async def cmd_help(ctx: commands.Context):
+    embed = discord.Embed(
+        title="Musify Bot Help",
+        description="Here are the available commands:",
+        color=discord.Color.purple(),
+    )
+    embed.add_field(
+        name="!join",
+        value="Join the voice channel you're in.",
+        inline=False
+    )
+    embed.add_field(
+        name="!leave",
+        value="Leave the voice channel.",
+        inline=False
+    )
+    embed.add_field(
+        name="!play <query> or !p <query>",
+        value="Play a song from YouTube by URL or search query.",
+        inline=False
+    )
+    embed.add_field(
+        name="!skip or !s",
+        value="Skip the current song.",
+        inline=False
+    )
+    embed.add_field(
+        name="!queue or !q",
+        value="Show the current queue with thumbnails.",
+        inline=False
+    )
+    embed.add_field(
+        name="!loop",
+        value="Toggle loop mode for the current song.",
+        inline=False
+    )
+    embed.add_field(
+        name="!volume <0-200> or !vol <0-200>",
+        value="Set the volume (0-200%).",
+        inline=False
+    )
+    embed.add_field(
+        name="!search <query>",
+        value="Search for songs and select from a list.",
+        inline=False
+    )
+    embed.set_footer(text="Use these commands in a text channel while in a voice channel.")
+    await ctx.send(embed=embed)
+
 # -----------------------------
 # Startup
 # -----------------------------
