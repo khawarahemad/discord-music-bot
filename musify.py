@@ -172,6 +172,7 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                             thumbnail=entry.get("thumbnail"),
                         )
                         gm.queue.append(new_track)
+                        tracks.append(new_track)  # <-- Add to tracks for return
                         # Start playback immediately if nothing is playing
                         if gm.current is None:
                             await start_playback(ctx, gm)
@@ -188,13 +189,14 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                 yt_info = await asyncio.to_thread(YTDL.extract_info, yt_query, download=False)
                 if yt_info and "entries" in yt_info and yt_info["entries"]:
                     entry = yt_info["entries"][0]
-                    tracks.append(Track(
+                    track_obj = Track(
                         url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
                         title=entry.get("title", "Unknown Title"),
                         webpage_url=entry.get("webpage_url", ""),
                         duration=entry.get("duration", 0),
                         thumbnail=entry.get("thumbnail"),
-                    ))
+                    )
+                    tracks.append(track_obj)
                     # Start playback for single track
                     if gm and gm.current is None:
                         await start_playback(ctx, gm)
@@ -215,6 +217,7 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                         thumbnail=entry.get("thumbnail"),
                     )
                     gm.queue.append(new_track)
+                    tracks.append(new_track)  # <-- Add to tracks for return
                     # Start playback immediately if nothing is playing
                     if gm.current is None:
                         await start_playback(ctx, gm)
@@ -548,37 +551,60 @@ async def cmd_play(ctx: commands.Context, *, query: str):
     gm.last_channel_id = ctx.channel.id
     await ensure_voice(ctx)
 
-    try:
-        queue_len_before = len(gm.queue)
-        tracks = await ytdl_search(query, ctx, gm)  # Pass ctx and gm for progress and immediate play
-        queue_len_after = len(gm.queue)
-        # Only send error if nothing was added to queue and no tracks returned
-        if not tracks and queue_len_after == queue_len_before and gm.current is None:
-            await ctx.reply("❌ No tracks found.")
-            return
-        for track in tracks:
-            gm.queue.append(track)
-        # Send summary embed (only if not already playing or for playlists)
-        if len(tracks) > 1 or (gm.current is None and len(tracks) == 1):
-            if len(tracks) == 1:
-                embed = discord.Embed(
-                    title="Queued",
-                    description=f"**{tracks[0].title}**\n\n[Open on YouTube]({tracks[0].webpage_url})",
-                    color=discord.Color.green(),
-                )
-                if tracks[0].thumbnail:
-                    embed.set_thumbnail(url=tracks[0].thumbnail)
-            else:
-                embed = discord.Embed(
-                    title="Playlist Queued",
-                    description=f"Added {len(tracks)} tracks to queue.",
-                    color=discord.Color.green(),
-                )
-            await ctx.send(embed=embed)
-        # Always call start_playback to ensure it starts if not already
-        await start_playback(ctx, gm)
-    except Exception as e:
-        await ctx.reply(f"❌ Failed to fetch audio: `{e}`")
+    async with ctx.typing():
+        try:
+            queue_len_before = len(gm.queue)
+            tracks = await ytdl_search(query, ctx, gm)
+            queue_len_after = len(gm.queue)
+            # Only send error if nothing was added to queue and no tracks returned
+            if not tracks and queue_len_after == queue_len_before and gm.current is None:
+                await ctx.reply("❌ No tracks found.")
+                return
+            # Do NOT append tracks again, ytdl_search already did it
+            # Send summary embed (only if not already playing or for playlists)
+            if len(tracks) > 1 or (gm.current is None and len(tracks) == 1):
+                if len(tracks) == 1:
+                    embed = discord.Embed(
+                        title="Queued",
+                        description=f"**{tracks[0].title}**\n\n[Open on YouTube]({tracks[0].webpage_url})",
+                        color=discord.Color.green(),
+                    )
+                    if tracks[0].thumbnail:
+                        embed.set_thumbnail(url=tracks[0].thumbnail)
+                else:
+                    embed = discord.Embed(
+                        title="Playlist Queued",
+                        description=f"Added {len(tracks)} tracks to queue.",
+                        color=discord.Color.green(),
+                    )
+                await ctx.send(embed=embed)
+            # Always call start_playback to ensure it starts if not already
+            await start_playback(ctx, gm)
+            # Send embed(s) for tracks just added to the queue
+            if tracks:
+                if len(tracks) == 1:
+                    t = tracks[0]
+                    embed = discord.Embed(
+                        title=f"Added to Queue",
+                        description=f"**{t.title}**\n\n[Open on YouTube]({t.webpage_url})",
+                        color=discord.Color.blue(),
+                    )
+                    if t.thumbnail:
+                        embed.set_thumbnail(url=t.thumbnail)
+                    await ctx.send(embed=embed)
+                else:
+                    desc = "\n".join([f"`{i+1}` • [{t.title}]({t.webpage_url})" for i, t in enumerate(tracks)])
+                    embed = discord.Embed(
+                        title="Added to Queue",
+                        description=desc,
+                        color=discord.Color.blue(),
+                    )
+                    # Use first track's thumbnail as album photo for summary
+                    if tracks[0].thumbnail:
+                        embed.set_thumbnail(url=tracks[0].thumbnail)
+                    await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.reply(f"❌ Failed to fetch audio: `{e}`")
 
 
 @bot.command(name="skip", aliases=["s"]) 
@@ -591,11 +617,22 @@ async def cmd_skip(ctx: commands.Context):
 @bot.command(name="queue", aliases=["q"]) 
 async def cmd_queue(ctx: commands.Context):
     gm = STATE.setdefault(ctx.guild.id, GuildMusic(guild_id=ctx.guild.id))
-    if not gm.queue:
+    embeds = []
+    # Show currently playing track first, if any
+    if gm.current:
+        embed = discord.Embed(
+            title=f"▶️ Now Playing: {gm.current.title}",
+            description=f"[Open on YouTube]({gm.current.webpage_url})",
+            color=discord.Color.orange(),
+        )
+        if gm.current.thumbnail:
+            embed.set_thumbnail(url=gm.current.thumbnail)
+        embeds.append(embed)
+    if not gm.queue and not gm.current:
         await ctx.send("Queue is empty.")
         return
-    embeds = []
-    for i, track in enumerate(list(gm.queue)[:10]):  # Limit to 10 embeds per message
+    # Show up to 10 tracks in queue (after current)
+    for i, track in enumerate(list(gm.queue)[:10]):
         embed = discord.Embed(
             title=f"{i+1}. {track.title}",
             description=f"[Open on YouTube]({track.webpage_url})",
@@ -628,9 +665,9 @@ async def cmd_volume(ctx: commands.Context, percent: int):
 @bot.command(name="search")
 async def cmd_search(ctx: commands.Context, *, query: str):
     gm = STATE.setdefault(ctx.guild.id, GuildMusic(guild_id=ctx.guild.id))
-    # Force yt-dlp to search for 10 results
     yt_query = f"ytsearch10:{query}"
-    tracks = search_tracks(yt_query, max_results=10)
+    async with ctx.typing():
+        tracks = search_tracks(yt_query, max_results=10)
     if not tracks:
         await ctx.send("❌ No results found or network error.")
         return
