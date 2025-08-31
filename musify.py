@@ -81,6 +81,7 @@ YTDL_OPTS = {
     "socket_timeout": 10,  # yt-dlp socket timeout
     "http_timeout": 10,    # yt-dlp HTTP timeout
     "cookies": COOKIES_PATH if COOKIES_PATH else None,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
 }
 FFMPEG_BEFORE = "-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 10000000"
 FFMPEG_OPTS = "-vn -timeout 10"
