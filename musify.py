@@ -478,7 +478,15 @@ async def cmd_play(ctx: commands.Context, *, query: str):
         return
 
     gm.queue.append(track)
-    await ctx.send(f"➕ Queued: **{track.title}**")
+    # Send embedded message with thumbnail
+    embed = discord.Embed(
+        title="Queued",
+        description=f"**{track.title}**\n\n[Open on YouTube]({track.webpage_url})",
+        color=discord.Color.green(),
+    )
+    if track.thumbnail:
+        embed.set_thumbnail(url=track.thumbnail)
+    await ctx.send(embed=embed)
     await start_playback(ctx, gm)
 
 
@@ -495,8 +503,17 @@ async def cmd_queue(ctx: commands.Context):
     if not gm.queue:
         await ctx.send("Queue is empty.")
         return
-    desc = "\n".join([f"`{i+1:2}` • {t.title}" for i, t in enumerate(list(gm.queue)[:15])])
-    await ctx.send(embed=discord.Embed(title="Up Next", description=desc))
+    embeds = []
+    for i, track in enumerate(list(gm.queue)[:10]):  # Limit to 10 embeds per message
+        embed = discord.Embed(
+            title=f"{i+1}. {track.title}",
+            description=f"[Open on YouTube]({track.webpage_url})",
+            color=discord.Color.blue(),
+        )
+        if track.thumbnail:
+            embed.set_thumbnail(url=track.thumbnail)
+        embeds.append(embed)
+    await ctx.send(embeds=embeds)
 
 
 @bot.command(name="loop")
