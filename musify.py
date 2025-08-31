@@ -63,7 +63,7 @@ if not check_cookies_file(COOKIES_PATH):
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # -----------------------------
 # yt-dlp & FFmpeg configuration
@@ -552,7 +552,7 @@ async def cmd_search(ctx: commands.Context, *, query: str):
 @bot.command(name="help")
 async def cmd_help(ctx: commands.Context):
     embed = discord.Embed(
-        title="Musify Bot Help",
+        title="BLIND MUSIC Bot Help",
         description="Here are the available commands:",
         color=discord.Color.purple(),
     )
