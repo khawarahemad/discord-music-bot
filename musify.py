@@ -549,8 +549,11 @@ async def cmd_play(ctx: commands.Context, *, query: str):
     await ensure_voice(ctx)
 
     try:
+        queue_len_before = len(gm.queue)
         tracks = await ytdl_search(query, ctx, gm)  # Pass ctx and gm for progress and immediate play
-        if not tracks:
+        queue_len_after = len(gm.queue)
+        # Only send error if nothing was added to queue and no tracks returned
+        if not tracks and queue_len_after == queue_len_before and gm.current is None:
             await ctx.reply("❌ No tracks found.")
             return
         for track in tracks:
