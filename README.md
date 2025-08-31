@@ -186,3 +186,8 @@ MIT
 - [discord.py](https://github.com/Rapptz/discord.py)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 - [FFmpeg](https://ffmpeg.org/)
+
+
+
+for cookies download use - ```yt-dlp --cookies-from-browser chrome https://www.youtube.com/watch?v=t9dUiCYJpiw
+```
