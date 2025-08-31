@@ -70,7 +70,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 # -----------------------------
 YTDL_OPTS = {
     "format": "bestaudio/best",
-    "noplaylist": True,
+    "noplaylist": False,  # Allow playlist extraction
     "default_search": "ytsearch",
     "quiet": True,
     "no_warnings": True,
@@ -142,33 +142,110 @@ async def ensure_voice(ctx: commands.Context) -> discord.VoiceClient:
     return vc
 
 
-def ytdl_search(query: str) -> Track:
+async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic = None) -> list[Track]:
+    tracks = []
+    progress_msg = None
     try:
-        # Set a timeout for all socket operations (yt-dlp uses urllib/request)
-        socket.setdefaulttimeout(10)
-        info = YTDL.extract_info(query, download=False)
+        socket.setdefaulttimeout(15)
+        if "spotify.com" in query:
+            if not sp:
+                print("Warning: Spotify API not configured.")
+                return tracks
+            if "playlist" in query:
+                playlist_id = query.split("/")[-1].split("?")[0]
+                results = sp.playlist_tracks(playlist_id, limit=20)
+                total = len(results['items'])
+                if ctx and total > 1:  # Send progress for playlists with >1 track
+                    progress_msg = await ctx.send(f"🔄 Processing playlist: 0/{total} tracks...")
+                for i, item in enumerate(results['items']):
+                    track = item['track']
+                    title = f"{track['name']} by {', '.join([a['name'] for a in track['artists']])}"
+                    yt_query = f"ytsearch:{title}"
+                    yt_info = await asyncio.to_thread(YTDL.extract_info, yt_query, download=False)
+                    if yt_info and "entries" in yt_info and yt_info["entries"]:
+                        entry = yt_info["entries"][0]
+                        new_track = Track(
+                            url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
+                            title=entry.get("title", "Unknown Title"),
+                            webpage_url=entry.get("webpage_url", ""),
+                            duration=entry.get("duration", 0),
+                            thumbnail=entry.get("thumbnail"),
+                        )
+                        gm.queue.append(new_track)
+                        # Start playback immediately if nothing is playing
+                        if gm.current is None:
+                            await start_playback(ctx, gm)
+                    else:
+                        print(f"Warning: No YouTube results for Spotify track '{title}'. Skipping.")
+                    # Update progress every track or every 5
+                    if progress_msg and (i + 1) % 5 == 0 or i + 1 == total:
+                        await progress_msg.edit(content=f"🔄 Processing playlist: {i+1}/{total} tracks...")
+            else:  # Single track
+                track_id = query.split("/")[-1].split("?")[0]
+                track = sp.track(track_id)
+                title = f"{track['name']} by {', '.join([a['name'] for a in track['artists']])}"
+                yt_query = f"ytsearch:{title}"
+                yt_info = await asyncio.to_thread(YTDL.extract_info, yt_query, download=False)
+                if yt_info and "entries" in yt_info and yt_info["entries"]:
+                    entry = yt_info["entries"][0]
+                    tracks.append(Track(
+                        url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
+                        title=entry.get("title", "Unknown Title"),
+                        webpage_url=entry.get("webpage_url", ""),
+                        duration=entry.get("duration", 0),
+                        thumbnail=entry.get("thumbnail"),
+                    ))
+                    # Start playback for single track
+                    if gm and gm.current is None:
+                        await start_playback(ctx, gm)
+                else:
+                    print(f"Warning: No YouTube results for Spotify track '{title}'.")
+        else:
+            info = await asyncio.to_thread(YTDL.extract_info, query, download=False)
+            if info and "entries" in info:
+                total = len(info["entries"][:50])
+                if ctx and total > 1:  # Progress for YouTube playlists
+                    progress_msg = await ctx.send(f"🔄 Processing playlist: 0/{total} tracks...")
+                for i, entry in enumerate(info["entries"][:50]):
+                    new_track = Track(
+                        url=entry.get("url") or entry.get("formats", [{}])[0].get("url", ""),
+                        title=entry.get("title", "Unknown Title"),
+                        webpage_url=entry.get("webpage_url", ""),
+                        duration=entry.get("duration", 0),
+                        thumbnail=entry.get("thumbnail"),
+                    )
+                    gm.queue.append(new_track)
+                    # Start playback immediately if nothing is playing
+                    if gm.current is None:
+                        await start_playback(ctx, gm)
+                    # Update progress
+                    if progress_msg and (i + 1) % 5 == 0 or i + 1 == total:
+                        await progress_msg.edit(content=f"🔄 Processing playlist: {i+1}/{total} tracks...")
+            elif info:
+                tracks.append(Track(
+                    url=info.get("url") or info.get("formats", [{}])[0].get("url", ""),
+                    title=info.get("title", "Unknown Title"),
+                    webpage_url=info.get("webpage_url", ""),
+                    duration=info.get("duration", 0),
+                    thumbnail=info.get("thumbnail"),
+                ))
+                # Start playback for single YouTube video
+                if gm and gm.current is None:
+                    await start_playback(ctx, gm)
+            else:
+                print(f"Warning: No results from yt-dlp for query '{query}'.")
     except Exception as e:
-        # Add specific error message for cookie issues
+        print(f"Error in ytdl_search: {e}")
         if "Sign in to confirm you’re not a bot" in str(e):
-            raise RuntimeError(
-                "yt-dlp error: Sign in required. "
-                "Export your YouTube cookies and set YTDLP_COOKIES in your .env file. "
-                "See https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
-            )
-        raise RuntimeError(f"yt-dlp error: {e}")
-    if info is None:
-        raise RuntimeError("No results from yt-dlp.")
-    if "entries" in info:
-        info = next((e for e in info["entries"] if e), None)
-        if info is None:
-            raise RuntimeError("No playable entry found.")
-    return Track(
-        url=info.get("url") or info.get("formats", [{}])[0].get("url", ""),
-        title=info.get("title", "Unknown Title"),
-        webpage_url=info.get("webpage_url", ""),
-        duration=info.get("duration", 0),
-        thumbnail=info.get("thumbnail"),
-    )
+            print("yt-dlp error: Sign in required. Check cookies.")
+    finally:
+        # Delete progress message after processing
+        if progress_msg:
+            try:
+                await progress_msg.delete()
+            except:
+                pass
+    return tracks
 
 
 def build_embed(track: Track) -> discord.Embed:
@@ -472,22 +549,33 @@ async def cmd_play(ctx: commands.Context, *, query: str):
     await ensure_voice(ctx)
 
     try:
-        track = ytdl_search(query)
+        tracks = await ytdl_search(query, ctx, gm)  # Pass ctx and gm for progress and immediate play
+        if not tracks:
+            await ctx.reply("❌ No tracks found.")
+            return
+        for track in tracks:
+            gm.queue.append(track)
+        # Send summary embed (only if not already playing or for playlists)
+        if len(tracks) > 1 or (gm.current is None and len(tracks) == 1):
+            if len(tracks) == 1:
+                embed = discord.Embed(
+                    title="Queued",
+                    description=f"**{tracks[0].title}**\n\n[Open on YouTube]({tracks[0].webpage_url})",
+                    color=discord.Color.green(),
+                )
+                if tracks[0].thumbnail:
+                    embed.set_thumbnail(url=tracks[0].thumbnail)
+            else:
+                embed = discord.Embed(
+                    title="Playlist Queued",
+                    description=f"Added {len(tracks)} tracks to queue.",
+                    color=discord.Color.green(),
+                )
+            await ctx.send(embed=embed)
+        # Always call start_playback to ensure it starts if not already
+        await start_playback(ctx, gm)
     except Exception as e:
         await ctx.reply(f"❌ Failed to fetch audio: `{e}`")
-        return
-
-    gm.queue.append(track)
-    # Send embedded message with thumbnail
-    embed = discord.Embed(
-        title="Queued",
-        description=f"**{track.title}**\n\n[Open on YouTube]({track.webpage_url})",
-        color=discord.Color.green(),
-    )
-    if track.thumbnail:
-        embed.set_thumbnail(url=track.thumbnail)
-    await ctx.send(embed=embed)
-    await start_playback(ctx, gm)
 
 
 @bot.command(name="skip", aliases=["s"]) 
@@ -614,6 +702,19 @@ def keep_alive():
         return "Bot is running!"
 
     app.run(host='0.0.0.0', port=8080)
+
+# Add Spotify setup after load_dotenv()
+try:
+    import spotipy
+    from spotipy.oauth2 import SpotifyClientCredentials
+    sp = None  # Initialize to None
+    SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+    SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+    if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
+        sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET))
+except ImportError:
+    print("Warning: spotipy not installed. Spotify support disabled. Install with: pip install spotipy")
+    sp = None
 
 # Run the bot
 # Put your token in the DISCORD_TOKEN env var or replace below directly.
