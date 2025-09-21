@@ -16,7 +16,6 @@ WORKDIR /app
 # Healthcheck (optional)
 HEALTHCHECK CMD curl --fail http://localhost:8080 || exit 1
 
-# Run the bot
-CMD ["python", "musify.py"]
-# Run the bot
-CMD ["python", "musify.py"]
+# Run the bot with Gunicorn (production WSGI server)
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "musify:app"]
+

@@ -7,6 +7,7 @@ import random
 import socket
 import tempfile
 import threading
+import time
 import urllib.request
 from collections import deque
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from discord.ext import commands
 from discord.ui import View, button
 import yt_dlp
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
 
@@ -112,6 +114,7 @@ class GuildMusic:
     message: Optional[discord.Message] = None
     last_channel_id: Optional[int] = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    control_messages: List[int] = field(default_factory=list)  # Store message IDs
 
 STATE: dict[int, GuildMusic] = {}
 
@@ -179,7 +182,7 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                     track_id = query.split("/")[-1].split("?")[0]
                     t = sp.track(track_id)
                     tracks_info = [t]
-                for t in tracks_info:
+                for idx, t in enumerate(tracks_info):
                     title = f"{t['name']} by {', '.join([a['name'] for a in t['artists']])}"
                     yt = await ytdl_extract(f"ytsearch1:{title}")
                     if yt:
@@ -195,10 +198,14 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                         if gm:
                             async with gm.lock:
                                 gm.queue.append(tr)
+                            # Start playback immediately after first track is added if nothing is playing
+                            if idx == 0 and gm.current is None:
+                                # Fire and forget, don't await to avoid blocking
+                                if ctx:
+                                    asyncio.create_task(start_playback(ctx, gm))
                 return found
             except Exception:
                 logger.exception("Spotify handling failed; falling back to direct yt-dlp search")
-
         info = await ytdl_extract(query)
         if not info:
             return found
@@ -206,7 +213,7 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
         # playlist / search results
         if isinstance(info, dict) and 'entries' in info and info['entries']:
             entries = [e for e in info['entries'] if e][:MAX_PLAYLIST_ITEMS]
-            for entry in entries:
+            for idx, entry in enumerate(entries):
                 tr = Track(
                     url=entry.get('url') or entry.get('formats', [{}])[0].get('url', ''),
                     title=entry.get('title', 'Unknown Title'),
@@ -218,6 +225,10 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                 if gm:
                     async with gm.lock:
                         gm.queue.append(tr)
+                    # Start playback immediately after first track is added if nothing is playing
+                    if idx == 0 and gm.current is None:
+                        if ctx:
+                            asyncio.create_task(start_playback(ctx, gm))
         else:
             # single video result
             entry = info if isinstance(info, dict) else None
@@ -233,6 +244,9 @@ async def ytdl_search(query: str, ctx: commands.Context = None, gm: GuildMusic =
                 if gm:
                     async with gm.lock:
                         gm.queue.append(tr)
+                    # Start playback immediately if nothing is playing
+                    if gm.current is None and ctx:
+                        asyncio.create_task(start_playback(ctx, gm))
     except Exception:
         logger.exception("Error in ytdl_search")
     return found
@@ -321,24 +335,34 @@ async def start_playback(ctx: Optional[commands.Context], gm: GuildMusic, vc: Op
         try:
             embed = build_embed(track_to_play)
             view = ControlPanel(gm)
-            if gm.message:
-                try:
-                    await gm.message.edit(embed=embed, view=view)
-                except Exception:
-                    # fallback to sending new
-                    if ctx:
-                        gm.message = await ctx.send(embed=embed, view=view)
-                    else:
-                        ch = bot.get_channel(gm.last_channel_id) if gm.last_channel_id else None
-                        if ch:
-                            gm.message = await ch.send(embed=embed, view=view)
+            ch = None
+            if ctx:
+                ch = ctx.channel
+            elif gm.last_channel_id:
+                ch = bot.get_channel(gm.last_channel_id)
+            # Always send a new control panel message
+            if ch:
+                # Delete the previous player message if it exists
+                if gm.message:
+                    try:
+                        await gm.message.delete()
+                    except Exception:
+                        pass
+                msg = await ch.send(embed=embed, view=view)
+                gm.message = msg
+                # Track control panel messages
+                gm.control_messages.append(msg.id)
+                # Delete old control panel messages if more than 5 (optional, for cleanup)
+                if len(gm.control_messages) > 5:
+                    try:
+                        old_msg_id = gm.control_messages.pop(0)
+                        if old_msg_id != msg.id:  # Don't delete the just-sent message
+                            old_msg = await ch.fetch_message(old_msg_id)
+                            await old_msg.delete()
+                    except Exception:
+                        pass
             else:
-                if ctx:
-                    gm.message = await ctx.send(embed=embed, view=view)
-                else:
-                    ch = bot.get_channel(gm.last_channel_id) if gm.last_channel_id else None
-                    if ch:
-                        gm.message = await ch.send(embed=embed, view=view)
+                logger.warning("No channel found to send control panel message.")
         except Exception:
             logger.exception("Failed to send or edit control panel message")
 
@@ -542,7 +566,19 @@ async def cmd_play(ctx: commands.Context, *, query: str):
                 await ctx.reply("❌ No tracks found.")
                 return
 
-            if len(tracks) == 1:
+            # Special handling for Spotify playlist: show up to 15 tracks and total added
+            if "spotify.com" in query and "playlist" in query and len(tracks) > 1:
+                desc = "\n".join([f"`{i+1}` • [{t.title}]({t.webpage_url})" for i, t in enumerate(tracks[:15])])
+                embed = discord.Embed(
+                    title="Added to Queue",
+                    description=desc,
+                    color=discord.Color.blue()
+                )
+                if tracks and tracks[0].thumbnail:
+                    embed.set_thumbnail(url=tracks[0].thumbnail)
+                await ctx.send(embed=embed)
+                await ctx.send(f"✅ **{len(tracks)}** tracks added to queue from Spotify playlist.")
+            elif len(tracks) == 1:
                 t = tracks[0]
                 embed = discord.Embed(
                     title="Added to Queue",
@@ -585,7 +621,8 @@ async def cmd_queue(ctx: commands.Context):
             embed.set_thumbnail(url=gm.current.thumbnail)
         embeds.append(embed)
     async with gm.lock:
-        queued = list(gm.queue)[:10]
+        queued = list(gm.queue)[:5]
+        total = len(gm.queue)
     if not queued and not gm.current:
         await ctx.send("Queue is empty.")
         return
@@ -601,6 +638,19 @@ async def cmd_queue(ctx: commands.Context):
     # Send all embeds (Discord may group them or you can send individually depending on embed count)
     for emb in embeds:
         await ctx.send(embed=emb)
+    # Send total count at the end
+    await ctx.send(f"Total songs in queue: **{total}**")
+
+@bot.command(name="clear")
+async def cmd_clear(ctx: commands.Context):
+    gm = STATE.setdefault(ctx.guild.id, GuildMusic(guild_id=ctx.guild.id))
+    async with gm.lock:
+        gm.queue.clear()
+        gm.current = None
+    vc = ctx.voice_client
+    if vc:
+        vc.stop()
+    await ctx.send("🗑️ Queue cleared.")
 
 @bot.command(name="loop")
 async def cmd_loop(ctx: commands.Context):
@@ -666,6 +716,24 @@ def keep_alive():
         app.run(host='0.0.0.0', port=int(os.getenv('PORT', '8080')))
     except Exception:
         logger.exception("Failed to start keep-alive web server")
+
+def update_cookies_periodically():
+    url = os.getenv("YTDLP_COOKIES_URL")
+    local_path = os.getenv("YTDLP_COOKIES", "cookies.txt")
+    interval = 20 * 60  # 20 minutes in seconds
+    while True:
+        try:
+            if url:
+                resp = requests.get(url)
+                if resp.status_code == 200:
+                    with open(local_path, "wb") as f:
+                        f.write(resp.content)
+        except Exception as e:
+            print(f"Failed to update cookies: {e}")
+        time.sleep(interval)
+
+# Start the background thread for updating cookies
+threading.Thread(target=update_cookies_periodically, daemon=True).start()
 
 # Run the bot
 TOKEN = os.getenv("DISCORD_TOKEN")
